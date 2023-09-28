@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 type Symbol = usize;
 type SymbolTable = HashMap<String, Symbol>;
+type Env = HashMap<Symbol, usize>;
 
 #[derive(Debug)]
 enum Instr {
@@ -107,33 +108,80 @@ fn is_input_decl(line: &str) -> bool {
     line.starts_with("input")
 }
 
-fn run(instrs: &Vec<Instr>, env: &mut HashMap<Symbol, usize>) -> Vec<Constraint> {
+enum PcStep {
+    Jump(usize),
+    Next,
+    Crash
+}
+
+fn run(instrs: &Vec<Instr>, env: &mut Env) -> (bool, Vec<Constraint>) {
     let mut path: Vec<Constraint> = vec![];
 
     // main execute loop
+    let mut crash = false;
     let mut pc = 0;
     while let Some(instr) = instrs.get(pc) {
         println!("INSTR: {:?}", instr);
-        println!("PATH: {:?}\n\n", path);
+        println!("PATH: {:?}", path);
+        println!("ENV: {:?}\n\n", env);
 
-        let (maybe_next_pc, maybe_constraint) = execute(env, instr);
-        pc = match maybe_next_pc {
-            Some(next_pc) => next_pc,
-            None => pc + 1
+        let (pc_step_type, maybe_constraint) = execute(env, instr);
+        pc = match pc_step_type {
+            PcStep::Jump(next_pc) => next_pc,
+            PcStep::Next => pc + 1,
+            PcStep::Crash => {
+                crash = true;
+                instrs.len()
+            }
         };
         
         if let Some(mut constraint) = maybe_constraint {
             path.append(&mut constraint);
         }
     }
+    
+    (crash, path)
+}
 
-    path
+fn solve(env: &mut Env, inputs: &Vec<Symbol>, instrs: &Vec<Instr>) {
+    env.insert(*inputs.get(0).unwrap(), 2);
+    env.insert(*inputs.get(1).unwrap(), 3);
+
+    // Make sure inputs have been set before running the program
+    assert!(inputs.iter().all(|i| env.contains_key(i)));
+    let (crash, mut path) = run(instrs, env);
+    if crash {
+        panic!("crash found at path {:?}", path)
+    } else {
+        let last = path.pop().unwrap();
+        path.push(last.invert());
+
+        let next_inputs = solve_for_inputs(&path);
+
+        env.clear();
+        for (input, value) in next_inputs {
+            env.insert(input, value);
+        }
+
+        assert!(inputs.iter().all(|i| env.contains_key(i)));
+        let (crash, path) = run(instrs, env);
+        if crash {
+            panic!("crash found at path {:?}", path);
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
+fn solve_for_inputs(path: &Vec<Constraint>) -> Vec<(Symbol, usize)> {
+    // TODO
+    vec![(0, 3), (1, 2)]
 }
 
 fn main() {
     let code = include_str!("example.txt");
     let mut symbols = SymbolTable::new();
-    let mut env: HashMap<Symbol, usize> = HashMap::new();
+    let mut env: Env = Env::new();
     let mut next_sym = 0;
 
     // Cleanup input code
@@ -176,12 +224,7 @@ fn main() {
         .map(|o| o.unwrap())
         .collect();
 
-    env.insert(*inputs.get(0).unwrap(), 2);
-    env.insert(*inputs.get(1).unwrap(), 3);
-
-    // Make sure inputs have been set before running the program
-    assert!(inputs.iter().all(|i| env.contains_key(i)));
-    run(&instrs, &mut env);
+    solve(&mut env, &inputs, &instrs);
 }
 
 #[derive(Debug)]
@@ -200,26 +243,41 @@ struct Constraint {
     operator: ConstraintOperator
 }
 
-/// Fill the first Option if you want to change the PC to
-/// something other than PC + 1. Fill the second Option to
-/// add something to the path constraints of the coming block
-type ExecResult = (Option<usize>, Option<Vec<Constraint>>);
+impl Constraint {
+    fn invert(&self) -> Self {
+        let operator = match self.operator {
+            ConstraintOperator::LessThanOrEqual => ConstraintOperator::GreaterThan,
+            _ => todo!()
+        };
 
-fn execute(vals: &mut HashMap<Symbol, usize>, instr: &Instr) -> ExecResult {
+        Constraint {
+            operator,
+            a: self.a,
+            b: self.b,
+        }
+    }
+}
+
+/// The first component defines how to change the PC after this
+/// instruction. Fill the second Option to add something to the
+/// path constraints of the coming block
+type ExecResult = (PcStep, Option<Vec<Constraint>>);
+
+fn execute(vals: &mut Env, instr: &Instr) -> ExecResult {
     match instr {
         Instr::Label(LabelData { label }) => {
-            (Some(*label), None)
+            (PcStep::Jump(*label), None) // this could also be PcStep::Next
         },
         Instr::Jmp(JmpData { dst }) => {
             // TODO: Unconditional jump?
-            (Some(*dst), None)
+            (PcStep::Jump(*dst), None)
         },
         Instr::Jgt(JgtData { lhs, rhs, dst }) => {
             let lhs_val = vals.get(lhs).unwrap();
             let rhs_val = vals.get(rhs).unwrap();
             if lhs_val > rhs_val {
                 (
-                    Some(dst.clone()),
+                    PcStep::Jump(*dst),
                     Some(vec![(Constraint {
                         a: *lhs,
                         b: *rhs,
@@ -228,7 +286,7 @@ fn execute(vals: &mut HashMap<Symbol, usize>, instr: &Instr) -> ExecResult {
                 )
             } else {
                 (
-                    None,
+                    PcStep::Next,
                     Some(vec![(Constraint {
                         a: *lhs,
                         b: *rhs,
@@ -239,7 +297,7 @@ fn execute(vals: &mut HashMap<Symbol, usize>, instr: &Instr) -> ExecResult {
         }
         Instr::Let(LetData { sym, val }) => {
             vals.insert(*sym, *val);
-            (None, None)
+            (PcStep::Next, None)
         }
         Instr::Hlt => loop {}
     }
