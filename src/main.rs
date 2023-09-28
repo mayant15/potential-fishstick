@@ -140,33 +140,82 @@ fn main() {
         .map(|l| parse_instr(&symbols, l).unwrap())
         .collect();
 
+    let mut path: Vec<Constraint> = vec![];
+
     // main execute loop
     let mut pc = 0;
     while let Some(instr) = instrs.get(pc) {
-        println!("{:?}", instr);
-        pc = match execute(&mut symbol_values, instr) {
+        println!("INSTR: {:?}", instr);
+        println!("PATH: {:?}\n\n", path);
+
+        let (maybe_next_pc, maybe_constraint) = execute(&mut symbol_values, instr);
+        pc = match maybe_next_pc {
             Some(next_pc) => next_pc,
             None => pc + 1
+        };
+        
+        if let Some(mut constraint) = maybe_constraint {
+            path.append(&mut constraint);
         }
     }
 }
 
-fn execute(vals: &mut HashMap<Symbol, usize>, instr: &Instr) -> Option<usize> {
+#[derive(Debug)]
+enum ConstraintOperator {
+    LessThan,
+    LessThanOrEqual,
+    Equal,
+    GreaterThan,
+    GreaterThanOrEqual,
+}
+
+#[derive(Debug)]
+struct Constraint {
+    a: Symbol,
+    b: Symbol,
+    operator: ConstraintOperator
+}
+
+/// Fill the first Option if you want to change the PC to
+/// something other than PC + 1. Fill the second Option to
+/// add something to the path constraints of the coming block
+type ExecResult = (Option<usize>, Option<Vec<Constraint>>);
+
+fn execute(vals: &mut HashMap<Symbol, usize>, instr: &Instr) -> ExecResult {
     match instr {
-        Instr::Label(LabelData { label }) => Some(label.clone()),
-        Instr::Jmp(JmpData { dst }) => Some(dst.clone()),
+        Instr::Label(LabelData { label }) => {
+            (Some(*label), None)
+        },
+        Instr::Jmp(JmpData { dst }) => {
+            // TODO: Unconditional jump?
+            (Some(*dst), None)
+        },
         Instr::Jgt(JgtData { lhs, rhs, dst }) => {
             let lhs_val = vals.get(lhs).unwrap();
             let rhs_val = vals.get(rhs).unwrap();
             if lhs_val > rhs_val {
-                Some(dst.clone())
+                (
+                    Some(dst.clone()),
+                    Some(vec![(Constraint {
+                        a: *lhs,
+                        b: *rhs,
+                        operator: ConstraintOperator::GreaterThan
+                    })])
+                )
             } else {
-                None
+                (
+                    None,
+                    Some(vec![(Constraint {
+                        a: *lhs,
+                        b: *rhs,
+                        operator: ConstraintOperator::LessThanOrEqual
+                    })])
+                )
             }
         }
         Instr::Let(LetData { sym, val }) => {
-            vals.insert(sym.clone(), val.clone());
-            None
+            vals.insert(*sym, *val);
+            (None, None)
         }
         Instr::Hlt => loop {}
     }
