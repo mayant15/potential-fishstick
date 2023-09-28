@@ -95,12 +95,16 @@ fn parse_instr(symbols: &SymbolTable, line: &str) -> Option<Instr> {
         let data = LabelData::new(symbols, op_str);
         return Some(Instr::Label(data))
     } else {
-        panic!();
+        None // TODO: This could either be an error or an instruction that we don't want to execute
     }
 }
 
 fn is_label_decl(line: &str) -> bool {
     line.ends_with(":")
+}
+
+fn is_input_decl(line: &str) -> bool {
+    line.starts_with("input")
 }
 
 fn run(instrs: &Vec<Instr>, env: &mut HashMap<Symbol, usize>) -> Vec<Constraint> {
@@ -139,9 +143,16 @@ fn main() {
         .filter(|l| !l.is_empty())
         .collect();
 
+    let mut inputs: Vec<Symbol> = vec![];
+
     // collect symbols and tables
     for (idx, line) in lines.iter().enumerate() {
-        if is_label_decl(line) {
+        if is_input_decl(line) {
+            let name = line.split(" ").nth(1).unwrap().trim_start_matches("$");
+            symbols.insert(name.to_string(), next_sym);
+            inputs.push(next_sym);
+            next_sym = next_sym + 1;
+        } else if is_label_decl(line) {
             let key = line.trim_end_matches(":").to_string();
             symbols.insert(key, idx + 1);
         } else {
@@ -160,10 +171,16 @@ fn main() {
 
     // parse instructions into executables
     let instrs: Vec<Instr> =  lines.iter()
-        .map(|l| parse_instr(&symbols, l).unwrap())
+        .map(|l| parse_instr(&symbols, l))
+        .filter(|o| o.is_some()) // remove instructions that were not parsed
+        .map(|o| o.unwrap())
         .collect();
 
-    
+    env.insert(*inputs.get(0).unwrap(), 2);
+    env.insert(*inputs.get(1).unwrap(), 3);
+
+    // Make sure inputs have been set before running the program
+    assert!(inputs.iter().all(|i| env.contains_key(i)));
     run(&instrs, &mut env);
 }
 
