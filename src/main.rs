@@ -103,10 +103,33 @@ fn is_label_decl(line: &str) -> bool {
     line.ends_with(":")
 }
 
+fn run(instrs: &Vec<Instr>, env: &mut HashMap<Symbol, usize>) -> Vec<Constraint> {
+    let mut path: Vec<Constraint> = vec![];
+
+    // main execute loop
+    let mut pc = 0;
+    while let Some(instr) = instrs.get(pc) {
+        println!("INSTR: {:?}", instr);
+        println!("PATH: {:?}\n\n", path);
+
+        let (maybe_next_pc, maybe_constraint) = execute(env, instr);
+        pc = match maybe_next_pc {
+            Some(next_pc) => next_pc,
+            None => pc + 1
+        };
+        
+        if let Some(mut constraint) = maybe_constraint {
+            path.append(&mut constraint);
+        }
+    }
+
+    path
+}
+
 fn main() {
     let code = include_str!("example.txt");
     let mut symbols = SymbolTable::new();
-    let mut symbol_values: HashMap<Symbol, usize> = HashMap::new();
+    let mut env: HashMap<Symbol, usize> = HashMap::new();
     let mut next_sym = 0;
 
     // Cleanup input code
@@ -140,24 +163,8 @@ fn main() {
         .map(|l| parse_instr(&symbols, l).unwrap())
         .collect();
 
-    let mut path: Vec<Constraint> = vec![];
-
-    // main execute loop
-    let mut pc = 0;
-    while let Some(instr) = instrs.get(pc) {
-        println!("INSTR: {:?}", instr);
-        println!("PATH: {:?}\n\n", path);
-
-        let (maybe_next_pc, maybe_constraint) = execute(&mut symbol_values, instr);
-        pc = match maybe_next_pc {
-            Some(next_pc) => next_pc,
-            None => pc + 1
-        };
-        
-        if let Some(mut constraint) = maybe_constraint {
-            path.append(&mut constraint);
-        }
-    }
+    
+    run(&instrs, &mut env);
 }
 
 #[derive(Debug)]
