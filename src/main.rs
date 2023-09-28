@@ -6,10 +6,11 @@ type Env = HashMap<Symbol, usize>;
 
 #[derive(Debug)]
 enum Instr {
+    Input, // just a marker, don't really need it
     Let(LetData),
     Jgt(JgtData),
     Jmp(JmpData),
-    Hlt,
+    Crash,
     Label(LabelData)
 }
 
@@ -90,13 +91,15 @@ fn parse_instr(symbols: &SymbolTable, line: &str) -> Option<Instr> {
     } else if op_str == "jmp" {
         let data = JmpData::new(symbols, toks.next().unwrap());
         return Some(Instr::Jmp(data));
-    } else if op_str == "hlt" {
-        return Some(Instr::Hlt);
+    } else if op_str.starts_with("input") {
+        return Some(Instr::Input);
+    } else if op_str == "crash" {
+        return Some(Instr::Crash);
     } else if op_str.ends_with(":") {
         let data = LabelData::new(symbols, op_str);
         return Some(Instr::Label(data))
     } else {
-        None // TODO: This could either be an error or an instruction that we don't want to execute
+        panic!("invalid instruction");
     }
 }
 
@@ -143,15 +146,23 @@ fn run(instrs: &Vec<Instr>, env: &mut Env) -> (bool, Vec<Constraint>) {
     (crash, path)
 }
 
+fn report(path: &Vec<Constraint>) -> ! {
+    println!("******** CRASH FOUND ********");
+    println!("{:?}", path);
+    println!("****************************");
+    panic!();
+}
+
 fn solve(env: &mut Env, inputs: &Vec<Symbol>, instrs: &Vec<Instr>) {
     env.insert(*inputs.get(0).unwrap(), 2);
     env.insert(*inputs.get(1).unwrap(), 3);
 
     // Make sure inputs have been set before running the program
     assert!(inputs.iter().all(|i| env.contains_key(i)));
+    println!("------ run #1 ------");
     let (crash, mut path) = run(instrs, env);
     if crash {
-        panic!("crash found at path {:?}", path)
+        report(&path);
     } else {
         let last = path.pop().unwrap();
         path.push(last.invert());
@@ -164,9 +175,10 @@ fn solve(env: &mut Env, inputs: &Vec<Symbol>, instrs: &Vec<Instr>) {
         }
 
         assert!(inputs.iter().all(|i| env.contains_key(i)));
+        println!("\n\n------ run #2 ------");
         let (crash, path) = run(instrs, env);
         if crash {
-            panic!("crash found at path {:?}", path);
+            report(&path);
         } else {
             unimplemented!()
         }
@@ -265,6 +277,7 @@ type ExecResult = (PcStep, Option<Vec<Constraint>>);
 
 fn execute(vals: &mut Env, instr: &Instr) -> ExecResult {
     match instr {
+        Instr::Input => (PcStep::Next, None),
         Instr::Label(LabelData { label }) => {
             (PcStep::Jump(*label), None) // this could also be PcStep::Next
         },
@@ -299,7 +312,7 @@ fn execute(vals: &mut Env, instr: &Instr) -> ExecResult {
             vals.insert(*sym, *val);
             (PcStep::Next, None)
         }
-        Instr::Hlt => loop {}
+        Instr::Crash => (PcStep::Crash, None)
     }
 }
 

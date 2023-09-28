@@ -7,6 +7,6 @@ let $c 1
 jmp :end
 
 else:
-let $c 0
+crash
 
 end:
